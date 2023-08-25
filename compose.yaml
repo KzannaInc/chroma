@@ -5,7 +5,7 @@ networks:
     driver: bridge
 
 services:
-  server:
+  chroma-server:
     image: server
     build:
       context: .
