@@ -1,8 +1,8 @@
 version: '3.9'
 
-networks:
-  net:
-    driver: bridge
+  #networks:
+  #  net:
+  #   driver: bridge
 
 services:
   chroma-server:
@@ -22,8 +22,8 @@ services:
       - 8000:8000
     depends_on:
       - clickhouse
-    networks:
-      - net
+        #    networks:
+        # - net
 
   clickhouse:
     image: clickhouse/clickhouse-server:22.9-alpine
@@ -40,8 +40,8 @@ services:
       - backups:/backups
       - ./config/backup_disk.xml:/etc/clickhouse-server/config.d/backup_disk.xml
       - ./config/chroma_users.xml:/etc/clickhouse-server/users.d/chroma.xml
-    networks:
-      - net
+        #  networks:
+        #      - net
 
 volumes:
   clickhouse_data:
