@@ -1,12 +1,16 @@
-from pydantic import BaseSettings
-from typing import Optional, List, Any, Dict, TypeVar, Set, cast, Iterable, Type
-from typing_extensions import Literal
-from abc import ABC
 import importlib
-import logging
-from overrides import EnforceOverrides, override
-from graphlib import TopologicalSorter
 import inspect
+import logging
+import os
+from abc import ABC
+from graphlib import TopologicalSorter
+from typing import Optional, List, Any, Dict, Set, Iterable
+from typing import Type, TypeVar, cast
+
+from overrides import EnforceOverrides
+from overrides import override
+from pydantic import BaseSettings, validator
+from typing_extensions import Literal
 
 # The thin client will have a flag to control which implementations to use
 is_thin_client = False
@@ -15,20 +19,39 @@ try:
 except ImportError:
     is_thin_client = False
 
-
 logger = logging.getLogger(__name__)
 
+LEGACY_ERROR = """\033[91mYou are using a deprecated configuration of Chroma.
+
+\033[94mIf you do not have data you wish to migrate, you only need to change how you construct
+your Chroma client. Please see the "New Clients" section of https://docs.trychroma.com/migration.
+________________________________________________________________________________________________
+
+If you do have data you wish to migrate, we have a migration tool you can use in order to
+migrate your data to the new Chroma architecture.
+Please `pip install chroma-migrate` and run `chroma-migrate` to migrate your data and then
+change how you construct your Chroma client.
+
+See https://docs.trychroma.com/migration for more information or join our discord at https://discord.gg/8g5FESbj for help!\033[0m"""
+
+_legacy_config_keys = {
+    "chroma_db_impl",
+}
+
 _legacy_config_values = {
-    "duckdb": "chromadb.db.duckdb.DuckDB",
-    "duckdb+parquet": "chromadb.db.duckdb.PersistentDuckDB",
-    "clickhouse": "chromadb.db.clickhouse.Clickhouse",
-    "rest": "chromadb.api.fastapi.FastAPI",
-    "local": "chromadb.api.local.LocalAPI",
+    "duckdb",
+    "duckdb+parquet",
+    "clickhouse",
+    "local",
+    "rest",
+    "chromadb.db.duckdb.DuckDB",
+    "chromadb.db.duckdb.PersistentDuckDB",
+    "chromadb.db.clickhouse.Clickhouse",
+    "chromadb.api.local.LocalAPI",
 }
 
 # TODO: Don't use concrete types here to avoid circular deps. Strings are fine for right here!
 _abstract_type_keys: Dict[str, str] = {
-    "chromadb.db.DB": "chroma_db_impl",
     "chromadb.api.API": "chroma_api_impl",
     "chromadb.telemetry.Telemetry": "chroma_telemetry_impl",
     "chromadb.ingest.Producer": "chroma_producer_impl",
@@ -38,11 +61,13 @@ _abstract_type_keys: Dict[str, str] = {
 }
 
 
-class Settings(BaseSettings):
+class Settings(BaseSettings):  # type: ignore
     environment: str = ""
 
-    chroma_db_impl: str = "chromadb.db.duckdb.DuckDB"
-    chroma_api_impl: str = "chromadb.api.local.LocalAPI"
+    # Legacy config has to be kept around because pydantic will error on nonexisting keys
+    chroma_db_impl: Optional[str] = None
+
+    chroma_api_impl: str = "chromadb.api.segment.SegmentAPI"  # Can be "chromadb.api.segment.SegmentAPI" or "chromadb.api.fastapi.FastAPI"
     chroma_telemetry_impl: str = "chromadb.telemetry.posthog.Posthog"
 
     # New architecture components
@@ -53,26 +78,76 @@ class Settings(BaseSettings):
         "chromadb.segment.impl.manager.local.LocalSegmentManager"
     )
 
-    clickhouse_host: Optional[str] = None
-    clickhouse_port: Optional[str] = None
-
     tenant_id: str = "default"
     topic_namespace: str = "default"
 
-    persist_directory: str = ".chroma"
+    is_persistent: bool = False
+    persist_directory: str = "./chroma"
 
     chroma_server_host: Optional[str] = None
     chroma_server_headers: Optional[Dict[str, str]] = None
     chroma_server_http_port: Optional[str] = None
     chroma_server_ssl_enabled: Optional[bool] = False
+    chroma_server_api_default_path: Optional[str] = "/api/v1"
     chroma_server_grpc_port: Optional[str] = None
     chroma_server_cors_allow_origins: List[str] = []  # eg ["http://localhost:3000"]
+
+    chroma_server_auth_provider: Optional[str] = None
+
+    @validator("chroma_server_auth_provider", pre=True, always=True, allow_reuse=True)
+    def chroma_server_auth_provider_non_empty(
+        cls: Type["Settings"], v: str
+    ) -> Optional[str]:
+        if v and not v.strip():
+            raise ValueError(
+                "chroma_server_auth_provider cannot be empty or just whitespace"
+            )
+        return v
+
+    chroma_server_auth_configuration_provider: Optional[str] = None
+    chroma_server_auth_configuration_file: Optional[str] = None
+    chroma_server_auth_credentials_provider: Optional[str] = None
+    chroma_server_auth_credentials_file: Optional[str] = None
+    chroma_server_auth_credentials: Optional[str] = None
+
+    @validator(
+        "chroma_server_auth_credentials_file", pre=True, always=True, allow_reuse=True
+    )
+    def chroma_server_auth_credentials_file_non_empty_file_exists(
+        cls: Type["Settings"], v: str
+    ) -> Optional[str]:
+        if v and not v.strip():
+            raise ValueError(
+                "chroma_server_auth_credentials_file cannot be empty or just whitespace"
+            )
+        if v and not os.path.isfile(os.path.join(v)):
+            raise ValueError(
+                f"chroma_server_auth_credentials_file [{v}] does not exist"
+            )
+        return v
+
+    chroma_client_auth_provider: Optional[str] = None
+    chroma_server_auth_ignore_paths: Dict[str, List[str]] = {
+        "/api/v1": ["GET"],
+        "/api/v1/heartbeat": ["GET"],
+        "/api/v1/version": ["GET"],
+    }
+
+    chroma_client_auth_credentials_provider: Optional[
+        str
+    ] = "chromadb.auth.providers.ConfigurationClientAuthCredentialsProvider"
+    chroma_client_auth_protocol_adapter: Optional[
+        str
+    ] = "chromadb.auth.providers.RequestsClientAuthProtocolAdapter"
+    chroma_client_auth_credentials_file: Optional[str] = None
+    chroma_client_auth_credentials: Optional[str] = None
+    chroma_client_auth_token_transport_header: Optional[str] = None
+    chroma_server_auth_token_transport_header: Optional[str] = None
 
     anonymized_telemetry: bool = True
 
     allow_reset: bool = False
 
-    sqlite_database: Optional[str] = ":memory:"
     migrations: Literal["none", "validate", "apply"] = "apply"
 
     def require(self, key: str) -> Any:
@@ -85,10 +160,9 @@ class Settings(BaseSettings):
 
     def __getitem__(self, key: str) -> Any:
         val = getattr(self, key)
-        # Backwards compatibility with short names instead of full class names
-        if val in _legacy_config_values:
-            newval = _legacy_config_values[val]
-            val = newval
+        # Error on legacy config values
+        if isinstance(val, str) and val in _legacy_config_values:
+            raise ValueError(LEGACY_ERROR)
         return val
 
     class Config:
@@ -139,10 +213,21 @@ class Component(ABC, EnforceOverrides):
 
 class System(Component):
     settings: Settings
-
     _instances: Dict[Type[Component], Component]
 
     def __init__(self, settings: Settings):
+        if is_thin_client:
+            # The thin client is a system with only the API component
+            if settings["chroma_api_impl"] != "chromadb.api.fastapi.FastAPI":
+                raise RuntimeError(
+                    "Chroma is running in http-only client mode, and can only be run with 'chromadb.api.fastapi.FastAPI' as the chroma_api_impl. \
+            see https://docs.trychroma.com/usage-guide?lang=py#using-the-python-http-only-client for more information."
+                )
+        # Validate settings don't contain any legacy config values
+        for key in _legacy_config_keys:
+            if settings[key] is not None:
+                raise ValueError(LEGACY_ERROR)
+
         self.settings = settings
         self._instances = {}
         super().__init__(self)
@@ -193,7 +278,9 @@ class System(Component):
     def reset_state(self) -> None:
         """Reset the state of this system and all constituents in reverse dependency order"""
         if not self.settings.allow_reset:
-            raise ValueError("Resetting is not allowed by this configuration")
+            raise ValueError(
+                "Resetting is not allowed by this configuration (to enable it, set `allow_reset` to `True` in your Settings() or include `ALLOW_RESET=TRUE` in your environment variables)"
+            )
         for component in reversed(list(self.components())):
             component.reset_state()
 

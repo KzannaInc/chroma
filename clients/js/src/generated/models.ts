@@ -17,11 +17,10 @@ export namespace Api {
 	}
 
 	export interface AddEmbedding {
-		embeddings: Api.AddEmbedding.Embedding[];
-		metadatas?: Api.AddEmbedding.Metadatas.ArrayValue[] | Api.AddEmbedding.Metadatas.ObjectValue;
-		documents?: string | Api.AddEmbedding.Documents.ArrayValue[];
-		ids?: string | Api.AddEmbedding.Ids.ArrayValue[];
-		'increment_index'?: boolean;
+		embeddings?: Api.AddEmbedding.Embedding[];
+		metadatas?: Api.AddEmbedding.Metadata[];
+		documents?: string[];
+		ids: string[];
 	}
 
 	/**
@@ -32,43 +31,7 @@ export namespace Api {
 		export interface Embedding {
 		}
 
-		export type Metadatas = Api.AddEmbedding.Metadatas.ArrayValue[] | Api.AddEmbedding.Metadatas.ObjectValue;
-
-		/**
-		 * @export
-		 * @namespace Metadatas
-		 */
-		export namespace Metadatas {
-			export interface ArrayValue {
-			}
-
-			export interface ObjectValue {
-			}
-
-		}
-
-		export type Documents = string | Api.AddEmbedding.Documents.ArrayValue[];
-
-		/**
-		 * @export
-		 * @namespace Documents
-		 */
-		export namespace Documents {
-			export interface ArrayValue {
-			}
-
-		}
-
-		export type Ids = string | Api.AddEmbedding.Ids.ArrayValue[];
-
-		/**
-		 * @export
-		 * @namespace Ids
-		 */
-		export namespace Ids {
-			export interface ArrayValue {
-			}
-
+		export interface Metadata {
 		}
 
 	}
@@ -101,14 +64,11 @@ export namespace Api {
 	export interface CreateCollection200Response {
 	}
 
-	export interface CreateIndex200Response {
-	}
-
 	export interface DeleteCollection200Response {
 	}
 
 	export interface DeleteEmbedding {
-		ids?: Api.DeleteEmbedding.Id[];
+		ids?: string[];
 		where?: Api.DeleteEmbedding.Where;
 		'where_document'?: Api.DeleteEmbedding.WhereDocument;
 	}
@@ -118,9 +78,6 @@ export namespace Api {
 	 * @namespace DeleteEmbedding
 	 */
 	export namespace DeleteEmbedding {
-		export interface Id {
-		}
-
 		export interface Where {
 		}
 
@@ -133,7 +90,7 @@ export namespace Api {
 	}
 
 	export interface GetEmbedding {
-		ids?: Api.GetEmbedding.Id[];
+		ids?: string[];
 		where?: Api.GetEmbedding.Where;
 		'where_document'?: Api.GetEmbedding.WhereDocument;
 		sort?: string;
@@ -147,7 +104,7 @@ export namespace Api {
 		 * @memberof GetEmbedding
 		 */
 		offset?: number;
-		include?: Api.GetEmbedding.IncludeEnum[];
+		include?: (Api.GetEmbedding.Include.EnumValueEnum | Api.GetEmbedding.Include.EnumValueEnum2 | Api.GetEmbedding.Include.EnumValueEnum3 | Api.GetEmbedding.Include.EnumValueEnum4)[];
 	}
 
 	/**
@@ -155,20 +112,35 @@ export namespace Api {
 	 * @namespace GetEmbedding
 	 */
 	export namespace GetEmbedding {
-		export interface Id {
-		}
-
 		export interface Where {
 		}
 
 		export interface WhereDocument {
 		}
 
-		export enum IncludeEnum {
-			Documents = 'documents',
-			Embeddings = 'embeddings',
-			Metadatas = 'metadatas',
-			Distances = 'distances'
+		export type Include = Api.GetEmbedding.Include.EnumValueEnum | Api.GetEmbedding.Include.EnumValueEnum2 | Api.GetEmbedding.Include.EnumValueEnum3 | Api.GetEmbedding.Include.EnumValueEnum4;
+
+		/**
+		 * @export
+		 * @namespace Include
+		 */
+		export namespace Include {
+			export enum EnumValueEnum {
+				Documents = 'documents'
+			}
+
+			export enum EnumValueEnum2 {
+				Embeddings = 'embeddings'
+			}
+
+			export enum EnumValueEnum3 {
+				Metadatas = 'metadatas'
+			}
+
+			export enum EnumValueEnum4 {
+				Distances = 'distances'
+			}
+
 		}
 
 	}
@@ -176,17 +148,11 @@ export namespace Api {
 	export interface GetNearestNeighbors200Response {
 	}
 
-	export interface Heartbeat200Response {
-	}
-
 	export interface HTTPValidationError {
 		detail?: Api.ValidationError[];
 	}
 
 	export interface ListCollections200Response {
-	}
-
-	export interface Persist200Response {
 	}
 
 	export interface QueryEmbedding {
@@ -198,7 +164,7 @@ export namespace Api {
 		 * @memberof QueryEmbedding
 		 */
 		'n_results'?: number;
-		include?: Api.QueryEmbedding.IncludeEnum[];
+		include?: (Api.QueryEmbedding.Include.EnumValueEnum | Api.QueryEmbedding.Include.EnumValueEnum2 | Api.QueryEmbedding.Include.EnumValueEnum3 | Api.QueryEmbedding.Include.EnumValueEnum4)[];
 	}
 
 	/**
@@ -215,26 +181,31 @@ export namespace Api {
 		export interface QueryEmbedding2 {
 		}
 
-		export enum IncludeEnum {
-			Documents = 'documents',
-			Embeddings = 'embeddings',
-			Metadatas = 'metadatas',
-			Distances = 'distances'
+		export type Include = Api.QueryEmbedding.Include.EnumValueEnum | Api.QueryEmbedding.Include.EnumValueEnum2 | Api.QueryEmbedding.Include.EnumValueEnum3 | Api.QueryEmbedding.Include.EnumValueEnum4;
+
+		/**
+		 * @export
+		 * @namespace Include
+		 */
+		export namespace Include {
+			export enum EnumValueEnum {
+				Documents = 'documents'
+			}
+
+			export enum EnumValueEnum2 {
+				Embeddings = 'embeddings'
+			}
+
+			export enum EnumValueEnum3 {
+				Metadatas = 'metadatas'
+			}
+
+			export enum EnumValueEnum4 {
+				Distances = 'distances'
+			}
+
 		}
 
-	}
-
-	export interface RawSql {
-		'raw_sql'?: string;
-	}
-
-	export interface RawSql200Response {
-	}
-
-	export interface Reset200Response {
-	}
-
-	export interface Root200Response {
 	}
 
 	export interface Update200Response {
@@ -260,10 +231,9 @@ export namespace Api {
 
 	export interface UpdateEmbedding {
 		embeddings?: Api.UpdateEmbedding.Embedding[];
-		metadatas?: Api.UpdateEmbedding.Metadatas.ArrayValue[] | Api.UpdateEmbedding.Metadatas.ObjectValue;
-		documents?: string | Api.UpdateEmbedding.Documents.ArrayValue[];
-		ids?: string | Api.UpdateEmbedding.Ids.ArrayValue[];
-		'increment_index'?: boolean;
+		metadatas?: Api.UpdateEmbedding.Metadata[];
+		documents?: string[];
+		ids: string[];
 	}
 
 	/**
@@ -274,43 +244,7 @@ export namespace Api {
 		export interface Embedding {
 		}
 
-		export type Metadatas = Api.UpdateEmbedding.Metadatas.ArrayValue[] | Api.UpdateEmbedding.Metadatas.ObjectValue;
-
-		/**
-		 * @export
-		 * @namespace Metadatas
-		 */
-		export namespace Metadatas {
-			export interface ArrayValue {
-			}
-
-			export interface ObjectValue {
-			}
-
-		}
-
-		export type Documents = string | Api.UpdateEmbedding.Documents.ArrayValue[];
-
-		/**
-		 * @export
-		 * @namespace Documents
-		 */
-		export namespace Documents {
-			export interface ArrayValue {
-			}
-
-		}
-
-		export type Ids = string | Api.UpdateEmbedding.Ids.ArrayValue[];
-
-		/**
-		 * @export
-		 * @namespace Ids
-		 */
-		export namespace Ids {
-			export interface ArrayValue {
-			}
-
+		export interface Metadata {
 		}
 
 	}
@@ -322,9 +256,6 @@ export namespace Api {
 		loc: (string | number)[];
 		msg: string;
 		'type': string;
-	}
-
-	export interface Version200Response {
 	}
 
 }

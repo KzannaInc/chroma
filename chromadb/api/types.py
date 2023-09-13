@@ -111,21 +111,42 @@ def validate_ids(ids: IDs) -> IDs:
         raise ValueError(f"Expected IDs to be a list, got {ids}")
     if len(ids) == 0:
         raise ValueError(f"Expected IDs to be a non-empty list, got {ids}")
-    for id in ids:
-        if not isinstance(id, str):
-            raise ValueError(f"Expected ID to be a str, got {id}")
-    if len(ids) != len(set(ids)):
-        dups = set([x for x in ids if ids.count(x) > 1])
-        raise errors.DuplicateIDError(
-            f"Expected IDs to be unique, found duplicates for: {dups}"
-        )
+    seen = set()
+    dups = set()
+    for id_ in ids:
+        if not isinstance(id_, str):
+            raise ValueError(f"Expected ID to be a str, got {id_}")
+        if id_ in seen:
+            dups.add(id_)
+        else:
+            seen.add(id_)
+    if dups:
+        n_dups = len(dups)
+        if n_dups < 10:
+            example_string = ", ".join(dups)
+            message = (
+                f"Expected IDs to be unique, found duplicates of: {example_string}"
+            )
+        else:
+            examples = []
+            for idx, dup in enumerate(dups):
+                examples.append(dup)
+                if idx == 10:
+                    break
+            example_string = (
+                f"{', '.join(examples[:5])}, ..., {', '.join(examples[-5:])}"
+            )
+            message = f"Expected IDs to be unique, found {n_dups} duplicated IDs: {example_string}"
+        raise errors.DuplicateIDError(message)
     return ids
 
 
 def validate_metadata(metadata: Metadata) -> Metadata:
-    """Validates metadata to ensure it is a dictionary of strings to strings, ints, or floats"""
-    if not isinstance(metadata, dict):
-        raise ValueError(f"Expected metadata to be a dict, got {metadata}")
+    """Validates metadata to ensure it is a dictionary of strings to strings, ints, floats or bools"""
+    if not isinstance(metadata, dict) and metadata is not None:
+        raise ValueError(f"Expected metadata to be a dict or None, got {metadata}")
+    if metadata is None:
+        return metadata
     if len(metadata) == 0:
         raise ValueError(f"Expected metadata to be a non-empty dict, got {metadata}")
     for key, value in metadata.items():
@@ -134,23 +155,28 @@ def validate_metadata(metadata: Metadata) -> Metadata:
                 f"Expected metadata key to be a str, got {key} which is a {type(key)}"
             )
         # isinstance(True, int) evaluates to True, so we need to check for bools separately
-        if not isinstance(value, (str, int, float)) or isinstance(value, bool):
+        if not isinstance(value, bool) and not isinstance(value, (str, int, float)):
             raise ValueError(
-                f"Expected metadata value to be a str, int, or float, got {value} which is a {type(value)}"
+                f"Expected metadata value to be a str, int, float or bool, got {value} which is a {type(value)}"
             )
     return metadata
 
 
 def validate_update_metadata(metadata: UpdateMetadata) -> UpdateMetadata:
-    """Validates metadata to ensure it is a dictionary of strings to strings, ints, or floats"""
-    if not isinstance(metadata, dict):
-        raise ValueError(f"Expected metadata to be a dict, got {metadata}")
+    """Validates metadata to ensure it is a dictionary of strings to strings, ints, floats or bools"""
+    if not isinstance(metadata, dict) and metadata is not None:
+        raise ValueError(f"Expected metadata to be a dict or None, got {metadata}")
+    if metadata is None:
+        return metadata
     if len(metadata) == 0:
         raise ValueError(f"Expected metadata to be a non-empty dict, got {metadata}")
     for key, value in metadata.items():
         if not isinstance(key, str):
             raise ValueError(f"Expected metadata key to be a str, got {key}")
-        if not isinstance(value, (str, int, float, type(None))):
+        # isinstance(True, int) evaluates to True, so we need to check for bools separately
+        if not isinstance(value, bool) and not isinstance(
+            value, (str, int, float, type(None))
+        ):
             raise ValueError(
                 f"Expected metadata value to be a str, int, or float, got {value}"
             )
@@ -158,7 +184,7 @@ def validate_update_metadata(metadata: UpdateMetadata) -> UpdateMetadata:
 
 
 def validate_metadatas(metadatas: Metadatas) -> Metadatas:
-    """Validates metadatas to ensure it is a list of dictionaries of strings to strings, ints, or floats"""
+    """Validates metadatas to ensure it is a list of dictionaries of strings to strings, ints, floats or bools"""
     if not isinstance(metadatas, list):
         raise ValueError(f"Expected metadatas to be a list, got {metadatas}")
     for metadata in metadatas:
@@ -181,6 +207,8 @@ def validate_where(where: Where) -> Where:
         if (
             key != "$and"
             and key != "$or"
+            and key != "$in"
+            and key != "$nin"
             and not isinstance(value, (str, int, float, dict))
         ):
             raise ValueError(
@@ -212,15 +240,37 @@ def validate_where(where: Where) -> Where:
                         raise ValueError(
                             f"Expected operand value to be an int or a float for operator {operator}, got {operand}"
                         )
-
-                if operator not in ["$gt", "$gte", "$lt", "$lte", "$ne", "$eq"]:
+                if operator in ["$in", "$nin"]:
+                    if not isinstance(operand, list):
+                        raise ValueError(
+                            f"Expected operand value to be an list for operator {operator}, got {operand}"
+                        )
+                if operator not in [
+                    "$gt",
+                    "$gte",
+                    "$lt",
+                    "$lte",
+                    "$ne",
+                    "$eq",
+                    "$in",
+                    "$nin",
+                ]:
                     raise ValueError(
-                        f"Expected where operator to be one of $gt, $gte, $lt, $lte, $ne, $eq, got {operator}"
+                        f"Expected where operator to be one of $gt, $gte, $lt, $lte, $ne, $eq, $in, $nin, "
+                        f"got {operator}"
                     )
 
-                if not isinstance(operand, (str, int, float)):
+                if not isinstance(operand, (str, int, float, list)):
                     raise ValueError(
-                        f"Expected where operand value to be a str, int, or float, got {operand}"
+                        f"Expected where operand value to be a str, int, float, or list of those type, got {operand}"
+                    )
+                if isinstance(operand, list) and (
+                    len(operand) == 0
+                    or not all(isinstance(x, type(operand[0])) for x in operand)
+                ):
+                    raise ValueError(
+                        f"Expected where operand value to be a non-empty list, and all values to obe of the same type "
+                        f"got {operand}"
                     )
     return where
 
@@ -258,6 +308,10 @@ def validate_where_document(where_document: WhereDocument) -> WhereDocument:
         elif not isinstance(operand, str):
             raise ValueError(
                 f"Expected where document operand value for operator $contains to be a str, got {operand}"
+            )
+        elif len(operand) == 0:
+            raise ValueError(
+                "Expected where document operand value for operator $contains to be a non-empty str"
             )
     return where_document
 

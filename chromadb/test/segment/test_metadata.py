@@ -1,6 +1,10 @@
+import os
+import shutil
+import tempfile
 import pytest
 from typing import Generator, List, Callable, Iterator, Dict, Optional, Union, Sequence
 from chromadb.config import System, Settings
+from chromadb.test.conftest import ProducerFn
 from chromadb.types import (
     SubmitEmbeddingRecord,
     MetadataEmbeddingRecord,
@@ -23,15 +27,29 @@ from itertools import count
 
 def sqlite() -> Generator[System, None, None]:
     """Fixture generator for sqlite DB"""
-    settings = Settings(sqlite_database=":memory:", allow_reset=True)
+    settings = Settings(allow_reset=True, is_persistent=False)
     system = System(settings)
     system.start()
     yield system
     system.stop()
 
 
+def sqlite_persistent() -> Generator[System, None, None]:
+    """Fixture generator for sqlite DB"""
+    save_path = tempfile.mkdtemp()
+    settings = Settings(
+        allow_reset=True, is_persistent=True, persist_directory=save_path
+    )
+    system = System(settings)
+    system.start()
+    yield system
+    system.stop()
+    if os.path.exists(save_path):
+        shutil.rmtree(save_path)
+
+
 def system_fixtures() -> List[Callable[[], Generator[System, None, None]]]:
-    return [sqlite]
+    return [sqlite, sqlite_persistent]
 
 
 @pytest.fixture(scope="module", params=system_fixtures())
@@ -43,13 +61,20 @@ def system(request: FixtureRequest) -> Generator[System, None, None]:
 def sample_embeddings() -> Iterator[SubmitEmbeddingRecord]:
     def create_record(i: int) -> SubmitEmbeddingRecord:
         vector = [i + i * 0.1, i + 1 + i * 0.1]
-        metadata: Optional[Dict[str, Union[str, int, float]]]
+        metadata: Optional[Dict[str, Union[str, int, float, bool]]]
         if i == 0:
             metadata = None
         else:
-            metadata = {"str_key": f"value_{i}", "int_key": i, "float_key": i + i * 0.1}
+            metadata = {
+                "str_key": f"value_{i}",
+                "int_key": i,
+                "float_key": i + i * 0.1,
+                "bool_key": True,
+            }
             if i % 3 == 0:
                 metadata["div_by_three"] = "true"
+            if i % 2 == 0:
+                metadata["bool_key"] = False
             metadata["chroma:document"] = _build_document(i)
 
         record = SubmitEmbeddingRecord(
@@ -104,16 +129,16 @@ def sync(segment: MetadataReader, seq_id: SeqId) -> None:
 
 
 def test_insert_and_count(
-    system: System, sample_embeddings: Iterator[SubmitEmbeddingRecord]
+    system: System,
+    sample_embeddings: Iterator[SubmitEmbeddingRecord],
+    produce_fns: ProducerFn,
 ) -> None:
-    system.reset_state()
     producer = system.instance(Producer)
+    system.reset_state()
 
     topic = str(segment_definition["topic"])
 
-    max_id = 0
-    for i in range(3):
-        max_id = producer.submit_embedding(topic, next(sample_embeddings))
+    max_id = produce_fns(producer, topic, sample_embeddings, 3)[1][-1]
 
     segment = SqliteMetadataSegment(system, segment_definition)
     segment.start()
@@ -142,23 +167,27 @@ def assert_equiv_records(
 
 
 def test_get(
-    system: System, sample_embeddings: Iterator[SubmitEmbeddingRecord]
+    system: System,
+    sample_embeddings: Iterator[SubmitEmbeddingRecord],
+    produce_fns: ProducerFn,
 ) -> None:
-    system.reset_state()
-
     producer = system.instance(Producer)
+    system.reset_state()
     topic = str(segment_definition["topic"])
 
-    embeddings = [next(sample_embeddings) for i in range(10)]
-
-    seq_ids = []
-    for e in embeddings:
-        seq_ids.append(producer.submit_embedding(topic, e))
+    embeddings, seq_ids = produce_fns(producer, topic, sample_embeddings, 10)
 
     segment = SqliteMetadataSegment(system, segment_definition)
     segment.start()
 
     sync(segment, seq_ids[-1])
+
+    # get with bool key
+    result = segment.get_metadata(where={"bool_key": True})
+    assert len(result) == 5
+
+    result = segment.get_metadata(where={"bool_key": False})
+    assert len(result) == 4
 
     # Get all records
     results = segment.get_metadata()
@@ -240,19 +269,18 @@ def test_get(
 
 
 def test_fulltext(
-    system: System, sample_embeddings: Iterator[SubmitEmbeddingRecord]
+    system: System,
+    sample_embeddings: Iterator[SubmitEmbeddingRecord],
+    produce_fns: ProducerFn,
 ) -> None:
-    system.reset_state()
-
     producer = system.instance(Producer)
+    system.reset_state()
     topic = str(segment_definition["topic"])
 
     segment = SqliteMetadataSegment(system, segment_definition)
     segment.start()
 
-    max_id = 0
-    for i in range(100):
-        max_id = producer.submit_embedding(topic, next(sample_embeddings))
+    max_id = produce_fns(producer, topic, sample_embeddings, 100)[1][-1]
 
     sync(segment, max_id)
 
@@ -302,21 +330,19 @@ def test_fulltext(
 
 
 def test_delete(
-    system: System, sample_embeddings: Iterator[SubmitEmbeddingRecord]
+    system: System,
+    sample_embeddings: Iterator[SubmitEmbeddingRecord],
+    produce_fns: ProducerFn,
 ) -> None:
-    system.reset_state()
-
     producer = system.instance(Producer)
+    system.reset_state()
     topic = str(segment_definition["topic"])
 
     segment = SqliteMetadataSegment(system, segment_definition)
     segment.start()
 
-    embeddings = [next(sample_embeddings) for i in range(10)]
-
-    max_id = 0
-    for e in embeddings:
-        max_id = producer.submit_embedding(topic, e)
+    embeddings, seq_ids = produce_fns(producer, topic, sample_embeddings, 10)
+    max_id = seq_ids[-1]
 
     sync(segment, max_id)
 
@@ -325,16 +351,16 @@ def test_delete(
     assert_equiv_records(embeddings[:1], results)
 
     # Delete by ID
-    max_id = producer.submit_embedding(
-        topic,
-        SubmitEmbeddingRecord(
-            id="embedding_0",
-            embedding=None,
-            encoding=None,
-            metadata=None,
-            operation=Operation.DELETE,
-        ),
+    delete_embedding = SubmitEmbeddingRecord(
+        id="embedding_0",
+        embedding=None,
+        encoding=None,
+        metadata=None,
+        operation=Operation.DELETE,
     )
+    max_id = produce_fns(producer, topic, (delete_embedding for _ in range(1)), 1)[1][
+        -1
+    ]
 
     sync(segment, max_id)
 
@@ -342,16 +368,9 @@ def test_delete(
     assert segment.get_metadata(ids=["embedding_0"]) == []
 
     # Delete is idempotent
-    max_id = producer.submit_embedding(
-        topic,
-        SubmitEmbeddingRecord(
-            id="embedding_0",
-            embedding=None,
-            encoding=None,
-            metadata=None,
-            operation=Operation.DELETE,
-        ),
-    )
+    max_id = produce_fns(producer, topic, (delete_embedding for _ in range(1)), 1)[1][
+        -1
+    ]
 
     sync(segment, max_id)
     assert segment.count() == 9
@@ -367,9 +386,8 @@ def test_delete(
 def test_update(
     system: System, sample_embeddings: Iterator[SubmitEmbeddingRecord]
 ) -> None:
-    system.reset_state()
-
     producer = system.instance(Producer)
+    system.reset_state()
     topic = str(segment_definition["topic"])
 
     segment = SqliteMetadataSegment(system, segment_definition)
@@ -393,11 +411,12 @@ def test_update(
 
 
 def test_upsert(
-    system: System, sample_embeddings: Iterator[SubmitEmbeddingRecord]
+    system: System,
+    sample_embeddings: Iterator[SubmitEmbeddingRecord],
+    produce_fns: ProducerFn,
 ) -> None:
-    system.reset_state()
-
     producer = system.instance(Producer)
+    system.reset_state()
     topic = str(segment_definition["topic"])
 
     segment = SqliteMetadataSegment(system, segment_definition)
@@ -413,7 +432,12 @@ def test_upsert(
         encoding=None,
         operation=Operation.UPSERT,
     )
-    max_id = producer.submit_embedding(topic, update_record)
+    max_id = produce_fns(
+        producer=producer,
+        topic=topic,
+        embeddings=(update_record for _ in range(1)),
+        n=1,
+    )[1][-1]
     sync(segment, max_id)
     results = segment.get_metadata(ids=["no_such_id"])
     assert results[0]["metadata"] == {"foo": "bar"}

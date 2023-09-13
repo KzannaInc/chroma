@@ -3,6 +3,7 @@ from abc import abstractmethod
 from chromadb.types import (
     Collection,
     MetadataEmbeddingRecord,
+    Operation,
     VectorEmbeddingRecord,
     Where,
     WhereDocument,
@@ -37,6 +38,11 @@ class SegmentImplementation(Component):
         return metadata (if any) that is applicable and should be applied to the
         segment. Validation errors will be reported to the user."""
         return None
+
+    @abstractmethod
+    def delete(self) -> None:
+        """Delete the segment and all its data"""
+        ...
 
 
 S = TypeVar("S", bound=SegmentImplementation)
@@ -104,4 +110,11 @@ class SegmentManager(Component):
         method repeatedly rather than storing the result (thereby giving this
         implementation full control over which segment impls are in or out of memory at
         a given time.)"""
+        pass
+
+    @abstractmethod
+    def hint_use_collection(self, collection_id: UUID, hint_type: Operation) -> None:
+        """Signal to the segment manager that a collection is about to be used, so that
+        it can preload segments as needed. This is only a hint, and implementations are
+        free to ignore it."""
         pass
